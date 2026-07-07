@@ -579,7 +579,7 @@
                     }
                 });
                 
-                if (minDiff > 0.5) currentTargetJsonFrame = null;
+                if (minDiff > 1.0) currentTargetJsonFrame = null;
 
                 if (poseActive && currentTargetJsonFrame && currentTargetJsonFrame.people) {
                     canvasCtx.globalCompositeOperation = 'screen';
@@ -883,11 +883,21 @@
                     btn.disabled = false;
                 }
                 btn.innerText = "SYNCHRO: ON";
+
+                /* 👇 ここを追加：シンクロONのとき、POSEがOFFなら自動でONにする */
+                if (!poseActive) {
+                    await togglePose();
+                }
             } else {
                 timeline.style.display = 'none'; 
                 score.style.display = 'none'; 
                 btn.innerText = "SYNCHRO: OFF";
                 scoreHistory = []; 
+                
+                /* 👇 ここを追加：シンクロOFFのとき、POSEも一緒にOFFにする */
+                if (poseActive) {
+                    await togglePose();
+                }
             }
         }
     </script>
