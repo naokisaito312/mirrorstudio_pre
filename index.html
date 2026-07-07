@@ -430,11 +430,11 @@
                                     let posY = kp.y !== undefined ? kp.y : (kp.position && kp.position.y !== undefined ? kp.position.y : (Array.isArray(kp) ? kp[1] : 0));
                                     let score = kp.score !== undefined ? kp.score : (kp.confidence !== undefined ? kp.confidence : 1.0);
         
-                                    // 👇【ここを修正】Python側の入力サイズ(384x640)を、HTMLの基準サイズ(1280x720)に変換する
-                                    // ※データが 384x640 の範囲内にある場合に、比率を維持して引き延ばします
-                                    if (posX > 1.0 && posX <= 384 && posY <= 640) {
-                                        posX = (posX / 384) * 1280;
-                                        posY = (posY / 640) * 720;
+                                    // 👇【ここを修正】JSONのデータが0〜1の割合（正規化）であるため、
+                                    // 無条件でHTMLの基準サイズ（1280x720）に掛け算して引き延ばします。
+                                    if (posX <= 1.0 && posY <= 1.0 && (posX > 0 || posY > 0)) {
+                                        posX = posX * 1280;
+                                        posY = posY * 720;
                                     }
         
                                     if (kp.part) {
