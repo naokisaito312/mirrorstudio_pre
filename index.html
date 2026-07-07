@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mirror Dance Studio</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0c081d;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            display: flex;
+            flex-direction: row;
+            transition: flex-direction 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        iframe, video, #player, #webcam {
+            background-color: #0b0d19;
+        }
+
+        #webcam {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain; 
+            transform: scaleX(-1); 
+            z-index: 1;
+            transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        .video-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none;
+            transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+            perspective: 1000px; 
+        }
+
+        #player {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1); 
+        }
+
+        /* --- モード別スタイル --- */
+        .video-container.mode-overlay {
+            top: 0; left: 0; width: 100%; height: 100%; opacity: 0.5; 
+        }
+        .video-container.mode-mini {
+            top: 135px; left: auto; right: 20px; width: 30vw; height: calc(30vw * 9 / 16);
+            opacity: 1.0 !important; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            border-radius: 16px; overflow: hidden; border: 2px solid rgba(255, 194, 235, 0.6); pointer-events: auto;
+        }
+        .video-container.mode-split-h { position: relative; width: 50vw; height: 100vh; opacity: 1.0 !important; pointer-events: auto; }
+        body.split-h-active #webcam { position: relative; width: 50vw; height: 100vh; }
+        .video-container.mode-split-v { position: relative; width: 100vw; height: 50vh; opacity: 1.0 !important; pointer-events: auto; }
+        body.split-v-active #webcam { position: relative; width: 100vw; height: 50vh; }
+
+        .video-container.mirrored #player { transform: scaleX(-1); }
+        iframe { width: 100%; height: 100%; border: none; }
+
+        .controls-container {
+            position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+            z-index: 5; display: flex; flex-direction: row; align-items: center; gap: 12px;
+            width: max-content; max-width: 95%; pointer-events: none;
+        }
+        .control-group {
+            pointer-events: auto; background: rgba(36, 25, 59, 0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15); padding: 8px 18px; border-radius: 40px;
+            display: flex; flex-direction: row; align-items: center; gap: 10px; box-shadow: 0 8px 32px 0 rgba(190, 145, 255, 0.12);
+        }
+        .controls-container input[type="text"] {
+            width: 150px; padding: 6px 14px; border-radius: 50px; border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.15); color: #ffffff; font-size: 12px; outline: none;
+        }
+        .btn-load {
+            width: 60px; padding: 6px 0; border-radius: 50px; border: none;
+            background: linear-gradient(135deg, #ffb3e6, #b3e6ff); color: #4a2a6b; font-weight: bold; font-size: 11px; cursor: pointer;
+        }
+        .file-label {
+            padding: 6px 12px; border-radius: 50px; background: rgba(255, 255, 255, 0.2); color: white;
+            font-size: 11px; font-weight: bold; cursor: pointer; border: 1px dashed rgba(255, 255, 255, 0.4);
+        }
+        .file-label.loaded { background: linear-gradient(135deg, #b3ffcc, #b3e6ff); color: #1e3d2f; border: none; }
+
+        .btn-player {
+            padding: 6px 0; border-radius: 50px; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.08);
+            color: white; cursor: pointer; font-size: 11px; font-weight: 500; white-space: nowrap; display: inline-flex; justify-content: center; align-items: center;
+        }
+        .w-skip { width: 55px; } .w-play { width: 65px; } .w-speed { width: 95px; } .w-mode { width: 125px; } .w-synchro { width: 105px; } .w-pose { width: 85px; } .w-mirror { width: 70px; }
+        .btn-gradient { background: linear-gradient(135deg, #c2b3ff, #ffb3e6); border: none; color: #3b2457; font-weight: bold; }
+        .controls-container label { color: rgba(255, 255, 255, 0.85); font-size: 11px; display: flex; align-items: center; gap: 6px; }
+        .disabled-ui { opacity: 0.4; pointer-events: none; }
+
+        input[type="range"] { -webkit-appearance: none; background: rgba(255, 255, 255, 0.15); height: 4px; width: 75px; border-radius: 2px; outline: none; }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%;
+            background: #ffb3e6; cursor: pointer; box-shadow: 0 0 8px rgba(255, 179, 230, 0.8); transition: transform 0.1s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+        #poseCanvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 3; pointer-events: none; display: none; }
+
+        /* タイムライン：中央配置にし、サークルの背景になるよう幅を調整 */
+        .synchro-timeline {
+            position: absolute;
+            top: 38px;
+            left: 50%;
+            transform: translateX(-50%); /* 画面中央に配置 */
+            width: 600px;        /* グラフの横幅（お好みで 80% や 50vw などに変更してもOKです） */
+            max-width: 90vw;     /* 画面からはみ出さないためのセーフティ */
+            height: 80px; 
+            background: rgba(36, 25, 59, 0.25); /* 背景をより透過させてサークルを見やすく */
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1.5px solid rgba(230, 200, 255, 0.15);
+            border-radius: 16px; 
+            z-index: 4;          /* サークルの後ろ側 */
+            display: none;
+        }
+        #timelineCanvas { width: 100%; height: 100%; display: block; }
+        
+        /* スコアサークル：タイムラインと完全に中心を合わせる */
+        .synchro-score {
+            position: absolute;
+            top: 18px;         /* タイムライン(height: 105px)のちょうど中央にくるよう調整 (105-100)/2 + 20 */
+            left: 50%;
+            transform: translateX(-50%);
+            width: 120px;
+            height: 120px;
+            z-index: 5;          /* グラフより手前に表示 */
+            display: none;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none; /* 念のため後ろの操作を邪魔しないように */
+        }
+
+        /* SVGサークルメーター */
+        .progress-ring {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform: rotate(-90deg); /* 真上から開始 */
+            z-index: 10;
+        }
+        .progress-ring__circle {
+            transition: stroke-dashoffset 0.15s linear;
+            transform-origin: 50% 50%;
+            stroke-linecap: round;
+        }
+
+        .score-text-block {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            background: rgba(12, 8, 29, 0.2); /* スタジオの背景色に近い濃い紺・黒（不透明度60%） */
+            width: 110px;                     /* サークルの内側に収まるサイズ */
+            height: 110px;
+            border-radius: 50%;              /* きれいな真丸にする */
+            backdrop-filter: blur(4px);      /* 後ろのグラフを少しボカすとさらに文字が見やすくなります */
+        }
+        .synchro-label {
+            font-size: 8px; 
+            font-weight: 800;
+            color: rgba(230, 200, 255, 0.6);
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+        .synchro-value {
+            font-size: 50px; 
+            font-weight: 900;
+            color: #ffffff;
+            font-family: 'Impact', sans-serif;
+            line-height: 1; 
+        }
+        .synchro-value.no-data {
+            font-family: Arial, sans-serif;
+            color: rgba(230, 200, 255, 0.2);
+            font-size: 50px; 
+        }
+        .synchro-unit { font-size: 11px; color: rgba(255, 255, 255, 0.6); }
+    </style>
+</head>
+<body>
+
+    <div class="video-container mode-overlay" id="videoContainer">
+        <div id="player"></div>
+    </div>
+
+    <video id="webcam" autoplay playsinline></video>
+    
+    <!-- タイムラインコンテナ -->
+    <div id="synchroTimeline" class="synchro-timeline">
+        <canvas id="timelineCanvas"></canvas>
+    </div>
+
+    <!-- サークルスコアコンテナ（中央配置） -->
+    <div id="synchroScore" class="synchro-score">
+        <svg class="progress-ring" width="120" height="120">
+            <circle class="progress-ring__background" stroke="rgba(230, 200, 255, 0.15)" stroke-width="6" fill="transparent" r="54" cx="60" cy="60"/>
+            <circle id="progressRingCircle" class="progress-ring__circle" stroke="#ffb6d6" stroke-width="10" fill="transparent" r="54" cx="60" cy="60"/>
+        </svg>
+        <div class="score-text-block">
+            <span class="synchro-label">SYNCHRO</span>
+            <span id="synchroValue" class="synchro-value no-data">--<span class="synchro-unit">%</span></span>
+        </div>
+    </div>
+    
+    <canvas id="poseCanvas"></canvas>
+
+    <div class="controls-container">
+        <div class="control-group">
+            <input type="text" id="youtubeUrl" placeholder="YouTube URL / ID...">
+            <button class="btn-load" onclick="loadVideo()">LOAD</button>
+            <label for="jsonFileInput" id="jsonLabel" class="file-label">JSON SELECT</label>
+            <input type="file" id="jsonFileInput" accept=".json" style="display:none;" onchange="handleJsonSelect(this)">
+        </div>
+        
+        <div class="control-group">
+            <button class="btn-player w-skip" onclick="seekRelative(-10)">-10s</button>
+            <button class="btn-player w-play" id="playPauseBtn" onclick="togglePlay()">PAUSE</button>
+            <button class="btn-player w-skip" onclick="seekRelative(10)">+10s</button>
+            <button class="btn-player btn-gradient w-speed" id="speedBtn" onclick="toggleSpeed()">SPEED: 1.0x</button>
+        </div>
+        
+        <div class="control-group">
+            <button class="btn-player btn-gradient w-mode" id="modeBtn" onclick="toggleMode()">MODE: OVERLAY</button>
+            <button class="btn-player btn-gradient w-synchro" id="synchroBtn" onclick="toggleSynchro()">SYNCHRO: OFF</button>
+            <button class="btn-player btn-gradient w-pose" id="poseBtn" onclick="togglePose()">POSE: OFF</button>
+            <button class="btn-player btn-gradient w-mirror" onclick="toggleYoutubeMirror()">MIRROR</button>
+            <label id="opacityLabel">
+                OPACITY
+                <input type="range" id="opacitySlider" min="0.1" max="0.9" step="0.05" value="0.5" oninput="changeOpacity(this.value)">
+            </label>
+        </div>
+    </div>
+
+    <script>
+        let currentOpacity = 0.5;
+        let currentModeIndex = 0; 
+        const modes = ["OVERLAY", "MINI", "SPLIT: H", "SPLIT: V"];
+        let isMirrored = false;
+        let dancePoseData = null;
+        let lastScoreUpdateTime = 0;
+        
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+                document.getElementById('webcam').srcObject = stream;
+            } catch (error) {
+                console.error('カメラの取得に失敗しました:', error);
+            }
+        }
+        window.addEventListener('DOMContentLoaded', initCamera);
+
+        const tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        let player;
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('player', {
+                playerVars: { 'autoplay': 0, 'controls': 0, 'rel': 0, 'origin': location.origin },
+                events: { 'onStateChange': onPlayerStateChange }
+            });
+        }
+
+        function loadVideo() {
+            const input = document.getElementById('youtubeUrl').value;
+            let videoId = input;
+            if (input.includes('v=')) { videoId = input.split('v=')[1].split('&')[0]; }
+            else if (input.includes('youtu.be/')) { videoId = input.split('youtu.be/')[1].split('?')[0]; }
+
+            if (videoId && player && typeof player.loadVideoById === 'function') {
+                player.loadVideoById({ videoId: videoId });
+            } else {
+                alert('有効なYouTubeのURLを入力してください。');
+            }
+        }
+
+        function handleJsonSelect(input) {
+            const file = input.files[0];
+            if (!file) return;
+        
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    let rawData = JSON.parse(e.target.result);
+                    
+                    if (!rawData.frames) {
+                        const actualFrames = Array.isArray(rawData) ? rawData : (rawData.data || rawData.poses || []);
+                        rawData = { frames: actualFrames };
+                    }
+        
+                    const cocoParts = [
+                        "nose", "lefteye", "righteye", "leftear", "rightear",
+                        "leftshoulder", "rightshoulder", "leftelbow", "rightelbow",
+                        "leftwrist", "rightwrist", "lefthip", "righthip",
+                        "leftknee", "rightknee", "leftankle", "rightankle"
+                    ];
+        
+                    rawData.frames.forEach(frame => {
+                        if (!frame.people && frame.keypoints) {
+                            frame.people = [{ keypoints: frame.keypoints }];
+                        }
+
+                        if (frame.people) {
+                            frame.people.forEach(person => {
+                                const orderedKeypoints = new Array(17).fill(null).map((_, i) => ({
+                                    part: cocoParts[i], x: 0, y: 0, score: 0
+                                }));
+        
+                                if (Array.isArray(person.keypoints)) {
+                                    person.keypoints.forEach(kp => {
+                                        if (kp && kp.part) {
+                                            const cleanName = kp.part.toLowerCase().replace(/[^a-z]/g, "");
+                                            const index = cocoParts.indexOf(cleanName);
+                                            if (index !== -1) {
+                                                orderedKeypoints[index] = {
+                                                    x: kp.x,
+                                                    y: kp.y,
+                                                    score: kp.score !== undefined ? kp.score : (kp.confidence !== undefined ? kp.confidence : 1.0)
+                                                };
+                                            }
+                                        }
+                                    });
+                                }
+                                person.keypoints = orderedKeypoints;
+                            });
+                        }
+                    });
+        
+                    dancePoseData = rawData;
+                    const label = document.getElementById('jsonLabel');
+                    label.innerText = "JSON LOADED";
+                    label.classList.add('loaded');
+                } catch (err) {
+                    alert("JSONファイルの読み込みに失敗しました。詳細: " + err.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function togglePlay() {
+            if (!player || typeof player.getPlayerState !== 'function') return;
+            if (player.getPlayerState() === YT.PlayerState.PLAYING) { player.pauseVideo(); } 
+            else { player.playVideo(); }
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (document.activeElement.tagName === 'INPUT') return;
+            if (event.code === 'Space') { event.preventDefault(); togglePlay(); }
+            else if (event.code === 'ArrowLeft') { event.preventDefault(); seekRelative(-10); }
+            else if (event.code === 'ArrowRight') { event.preventDefault(); seekRelative(10); }
+        });
+
+        function seekRelative(seconds) {
+            if (!player || typeof player.getCurrentTime !== 'function') return;
+            player.seekTo(player.getCurrentTime() + seconds, true);
+        }
+
+        function onPlayerStateChange(event) {
+            document.getElementById('playPauseBtn').innerText = (event.data === YT.PlayerState.PLAYING) ? "PAUSE" : "PLAY";
+        }
+
+        function toggleYoutubeMirror() {
+            isMirrored = !isMirrored; 
+            document.getElementById('videoContainer').classList.toggle('mirrored', isMirrored);
+        }
+
+        function changeOpacity(value) {
+            currentOpacity = value;
+            const container = document.getElementById('videoContainer');
+            if (container.classList.contains('mode-overlay')) { container.style.opacity = value; }
+        }
+
+        let currentSpeed = 1.0;
+        function toggleSpeed() {
+            if (!player || typeof player.setPlaybackRate !== 'function') return;
+            currentSpeed = currentSpeed === 1.0 ? 0.75 : (currentSpeed === 0.75 ? 0.5 : 1.0);
+            player.setPlaybackRate(currentSpeed);
+            document.getElementById('speedBtn').innerText = `SPEED: ${currentSpeed}x`;
+        }
+        
+        function toggleMode() {
+            const container = document.getElementById('videoContainer');
+            const modeBtn = document.getElementById('modeBtn');
+            const opacityLabel = document.getElementById('opacityLabel');
+            const body = document.body;
+
+            currentModeIndex = (currentModeIndex + 1) % modes.length;
+            const activeMode = modes[currentModeIndex];
+            modeBtn.innerText = `MODE: ${activeMode}`;
+
+            container.className = "video-container";
+            body.className = "";
+            container.style.opacity = ""; 
+            opacityLabel.classList.add('disabled-ui');
+
+            if (isMirrored) container.classList.add('mirrored');
+
+            if (activeMode === "OVERLAY") {
+                container.classList.add('mode-overlay');
+                container.style.opacity = currentOpacity;
+                opacityLabel.classList.remove('disabled-ui');
+            } else if (activeMode === "MINI") {
+                container.classList.add('mode-mini');
+            } else if (activeMode === "SPLIT: H") {
+                body.style.flexDirection = "row";
+                body.classList.add('split-h-active');
+                container.classList.add('mode-split-h');
+            } else if (activeMode === "SPLIT: V") {
+                body.style.flexDirection = "column";
+                body.classList.add('split-v-active');
+                container.classList.add('mode-split-v');
+            }
+        }
+
+        let detector;
+        let poseActive = false;
+        let synchroActive = false; 
+        const canvasElement = document.getElementById('poseCanvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const videoElement = document.getElementById('webcam');
+        let smoothedKeypoints = [];
+        let scoreHistory = [];
+        const MAX_HISTORY = 900; 
+        
+        async function initPoseDetection() {
+            if (window.tf) { tf.env().set('WEBGL_FLUSH_THRESHOLD', -1); }
+            detector = await poseDetection.createDetector(
+                poseDetection.SupportedModels.MoveNet, 
+                { modelType: poseDetection.movenet.modelType.MULTIPOSE_LIGHTNING, enableTracking: false }
+            );
+            renderLoop();
+        }
+
+        let targetScore = 0;       
+        let currentAnimatedScore = 0; 
+        let hasValidData = false;  
+
+        // サークルメーターの更新処理
+        function updateCircleMeter(score, isData) {
+            const circle = document.getElementById('progressRingCircle');
+            if (!circle) return;
+            
+            const radius = circle.r.baseVal.value;
+            const circumference = radius * 2 * Math.PI;
+            
+            circle.style.strokeDasharray = `${circumference} ${circumference}`;
+            
+            if (!isData) {
+                circle.style.strokeDashoffset = circumference;
+                return;
+            }
+            
+            const offset = circumference - (score / 100) * circumference;
+            circle.style.strokeDashoffset = offset;
+            
+            if (score >= 90) circle.setAttribute('stroke', '#ffb6d6');
+            else if (score >= 70) circle.setAttribute('stroke', '#e1b3ff');
+            else circle.setAttribute('stroke', '#a3f5ff');
+        }
+
+        function drawBlurryOura(keypoints, p1, p2, color, glowRadius, scaleX, scaleY, offsetX = 0, offsetY = 0) {
+            const pt1 = keypoints[p1];
+            const pt2 = keypoints[p2];
+            if (pt1 && pt2 && pt1.score > 0.15 && pt2.score > 0.15) {
+                const x1 = pt1.x * scaleX + offsetX;
+                const y1 = pt1.y * scaleY + offsetY;
+                const x2 = pt2.x * scaleX + offsetX;
+                const y2 = pt2.y * scaleY + offsetY;
+
+                if (isNaN(x1) || isNaN(y1) || isNaN(x2) || isNaN(y2)) return;
+
+                canvasCtx.save();
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(x1, y1);
+                canvasCtx.lineTo(x2, y2);
+                canvasCtx.strokeStyle = color; 
+                canvasCtx.lineWidth = 20; 
+                canvasCtx.lineCap = 'round';
+                canvasCtx.shadowColor = color;
+                canvasCtx.shadowBlur = glowRadius; 
+                canvasCtx.stroke();
+                canvasCtx.restore();
+            }
+        }
+
+        const connections = [
+            [5, 6], [5, 7], [7, 9], [6, 8], [8, 10],
+            [5, 11], [6, 12], [11, 12],
+            [11, 13], [13, 15], [12, 14], [14, 16]
+        ];
+
+        const colors = ['rgba(255, 182, 214, 0.85)', 'rgba(163, 245, 255, 0.85)'];
+        const ghostColors = ['rgba(218, 160, 255, 0.80)', 'rgba(255, 218, 120, 0.80)', 'rgba(130, 255, 160, 0.80)'];
+
+        async function renderLoop() {
+            if (!detector) return;
+            if (!poseActive && !synchroActive) {
+                requestAnimationFrame(renderLoop);
+                return;
+            }
+
+            if (canvasElement.width !== window.innerWidth || canvasElement.height !== window.innerHeight) {
+                canvasElement.width = window.innerWidth;
+                canvasElement.height = window.innerHeight;
+            }
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            const activeMode = modes[currentModeIndex];
+            
+            let targetAreaWidth = canvasElement.width;
+            let targetAreaHeight = canvasElement.height;
+            let ytBaseOffsetX = 0;
+            let ytBaseOffsetY = 0;
+
+            if (activeMode === "SPLIT: H") {
+                targetAreaWidth = canvasElement.width / 2;
+            } else if (activeMode === "SPLIT: V") {
+                targetAreaHeight = canvasElement.height / 2;
+            }
+
+            const videoRatio = 1280 / 720;
+            const areaRatio = targetAreaWidth / targetAreaHeight;
+            let scaleX, scaleY;
+            let offsetX = 0;
+            let offsetY = 0;
+
+            if (areaRatio > videoRatio) {
+                scaleY = targetAreaHeight / 720;
+                scaleX = scaleY;
+                offsetX = (targetAreaWidth - (1280 * scaleX)) / 2;
+            } else {
+                scaleX = targetAreaWidth / 1280;
+                scaleY = scaleX;
+                offsetY = (targetAreaHeight - (720 * scaleY)) / 2;
+            }
+
+            const finalYtOffsetX = ytBaseOffsetX + offsetX;
+            const finalYtOffsetY = ytBaseOffsetY + offsetY;
+
+            let currentTargetJsonFrame = null;
+            if (dancePoseData && dancePoseData.frames && player && typeof player.getCurrentTime === 'function') {
+                const ytTime = player.getCurrentTime();
+                let minDiff = Infinity;
+                
+                dancePoseData.frames.forEach(f => {
+                    let diff = Math.abs(f.time - ytTime);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        currentTargetJsonFrame = f;
+                    }
+                });
+                
+                if (minDiff > 0.5) currentTargetJsonFrame = null;
+
+                if (poseActive && currentTargetJsonFrame && currentTargetJsonFrame.people) {
+                    canvasCtx.globalCompositeOperation = 'screen';
+                    currentTargetJsonFrame.people.forEach(person => {
+                        const pId = person.person_id !== undefined ? person.person_id : 0;
+                        const ghostColor = ghostColors[pId % ghostColors.length];
+                        
+                        for (let i = 0; i < connections.length; i++) {
+                            drawBlurryOura(person.keypoints, connections[i][0], connections[i][1], ghostColor, 25, scaleX, scaleY, finalYtOffsetX, finalYtOffsetY);
+                        }
+                        person.keypoints.forEach((kp) => {
+                            if (kp.score > 0.15) {
+                                const cx = kp.x * scaleX + finalYtOffsetX;
+                                const cy = kp.y * scaleY + finalYtOffsetY;
+                                if (!isNaN(cx) && !isNaN(cy)) {
+                                    canvasCtx.save();
+                                    canvasCtx.beginPath();
+                                    canvasCtx.arc(cx, cy, 5, 0, 2 * Math.PI);
+                                    canvasCtx.fillStyle = '#ffffff'; 
+                                    canvasCtx.fill();
+                                    canvasCtx.restore();
+                                }
+                            }
+                        });
+                    });
+                    canvasCtx.globalCompositeOperation = 'source-over';
+                }
+            }
+
+            if (videoElement.readyState >= 2 && videoElement.videoWidth > 0) {
+                const poses = await detector.estimatePoses(videoElement);
+                const valueElement = document.getElementById('synchroValue');
+
+                let activePoses = [...poses].slice(0, 2);
+                const detectedCount = activePoses.filter(p => p !== null).length;
+
+                if (detectedCount === 2) {
+                    const getMirrorX = (p) => {
+                        if (!p || !p.keypoints) return videoElement.videoWidth / 2;
+                        const validKps = p.keypoints.filter(kp => kp.score > 0.25);
+                        if (validKps.length === 0) return videoElement.videoWidth / 2;
+                        return videoElement.videoWidth - (validKps.reduce((sum, kp) => sum + kp.x, 0) / validKps.length);
+                    };
+                    if (getMirrorX(activePoses[0]) > getMirrorX(activePoses[1])) activePoses.reverse();
+                } else if (detectedCount === 1) {
+                    activePoses = [activePoses.find(p => p !== null), null];
+                }
+
+                if (activePoses.length > 0 && activePoses[0] !== null) {
+                    const currentPose = activePoses[0];
+                    if (smoothedKeypoints.length === 0) {
+                        smoothedKeypoints = JSON.parse(JSON.stringify(currentPose.keypoints));
+                    } else {
+                        for (let i = 0; i < currentPose.keypoints.length; i++) {
+                            const kp = currentPose.keypoints[i];
+                            if (kp.score > 0.15) {
+                                smoothedKeypoints[i].x = smoothedKeypoints[i].x * 0.7 + kp.x * 0.3;
+                                smoothedKeypoints[i].y = smoothedKeypoints[i].y * 0.7 + kp.y * 0.3;
+                                smoothedKeypoints[i].score = kp.score;
+                            }
+                        }
+                    }
+                }
+
+                if (synchroActive) {
+                    let userPoseKps = (activePoses.length > 0 && activePoses[0] !== null) ? (smoothedKeypoints.length > 0 ? smoothedKeypoints : activePoses[0].keypoints) : null;
+                    let targetModelKps = null;
+
+                    if (dancePoseData && currentTargetJsonFrame && currentTargetJsonFrame.people && currentTargetJsonFrame.people.length > 0) {
+                        if (userPoseKps) {
+                            let bestMatchPerson = currentTargetJsonFrame.people[0];
+                            let minDistance = 999;
+                            const userNose = userPoseKps[0];
+                            currentTargetJsonFrame.people.forEach(person => {
+                                const targetNose = person.keypoints[0];
+                                if (userNose && targetNose && userNose.score > 0.15 && targetNose.score > 0.15) {
+                                    const dist = Math.abs((1.0 - userNose.x / videoElement.videoWidth) - (targetNose.x / 1280));
+                                    if (dist < minDistance) { minDistance = dist; bestMatchPerson = person; }
+                                }
+                            });
+                            targetModelKps = bestMatchPerson.keypoints;
+                        }
+                    } else if (activePoses.length === 2 && activePoses[1] !== null) {
+                        targetModelKps = activePoses[1].keypoints;
+                    }
+
+                    if (userPoseKps && targetModelKps) {
+                        function getAngle(kp, a, b, c) {
+                            if (!kp[a] || !kp[b] || !kp[c] || kp[a].score < 0.15 || kp[b].score < 0.15 || kp[c].score < 0.15) return null;
+                            const radians = Math.atan2(kp[c].y - kp[b].y, kp[c].x - kp[b].x) - Math.atan2(kp[a].y - kp[b].y, kp[a].x - kp[b].x);
+                            let angle = Math.abs((radians * 180.0) / Math.PI);
+                            return angle > 180.0 ? 360.0 - angle : angle;
+                        }
+
+                        const joints = [[5, 7, 9], [6, 8, 10], [11, 13, 15], [12, 14, 16]];
+                        let totalDiff = 0, validJointsCount = 0;
+
+                        joints.forEach(([a, b, c]) => {
+                            const a1 = getAngle(userPoseKps, a, b, c);
+                            const a2 = getAngle(targetModelKps, a, b, c);
+                            if (a1 !== null && a2 !== null) { totalDiff += Math.abs(a1 - a2); validJointsCount++; }
+                        });
+
+                        if (validJointsCount > 0) {
+                            let rawScore = Math.max(0, 100 - (Math.max(0, (totalDiff / validJointsCount) - 15) * 1.5));
+                            targetScore = rawScore >= 90 ? 100 : rawScore;
+                            hasValidData = true;
+                        } else { targetScore = Math.max(0, targetScore - 1.5); }
+                    } else {
+                        if (detectedCount === 0) smoothedKeypoints = [];
+                        targetScore = Math.max(0, targetScore - 1.5);
+                        if (targetScore === 0) hasValidData = false;
+                    }
+
+                    if (hasValidData) {
+                        currentAnimatedScore = (currentAnimatedScore * 0.85) + (targetScore * 0.15);
+                        let displayScore = Math.round(currentAnimatedScore);
+                        
+                        const now = performance.now();
+                        if (now - lastScoreUpdateTime >= 1000) {
+                            valueElement.classList.remove('no-data');
+                            valueElement.innerHTML = `${displayScore}<span class="synchro-unit">%</span>`;
+                            updateCircleMeter(displayScore, true); // サークル更新
+                            lastScoreUpdateTime = now;
+                        }
+                        
+                        scoreHistory.push(displayScore);
+                    } else {
+                        valueElement.classList.add('no-data');
+                        valueElement.innerHTML = `--<span class="synchro-unit">%</span>`;
+                        updateCircleMeter(0, false); // サークルリセット
+                        currentAnimatedScore = 0;
+                        scoreHistory.push(0);
+                        lastScoreUpdateTime = 0;
+                    }
+                    if (scoreHistory.length > MAX_HISTORY) scoreHistory.shift();
+                    drawTimelineGraph();
+                }
+                
+                if (poseActive) {
+                    canvasCtx.globalCompositeOperation = 'screen';
+
+                    let camAreaWidth = canvasElement.width;
+                    let camAreaHeight = canvasElement.height;
+                    let camBaseOffsetX = 0;
+                    let camBaseOffsetY = 0;
+
+                    if (activeMode === "SPLIT: H") { 
+                        camAreaWidth = canvasElement.width / 2; 
+                        camBaseOffsetX = canvasElement.width / 2; 
+                    } 
+                    else if (activeMode === "SPLIT: V") { 
+                        camAreaHeight = canvasElement.height / 2; 
+                        camBaseOffsetY = canvasElement.height / 2; 
+                    }
+
+                    const camVideoRatio = videoElement.videoWidth / videoElement.videoHeight;
+                    const camAreaRatio = camAreaWidth / camAreaHeight;
+                    let camScale;
+                    let camTrimOffsetX = 0;
+                    let camTrimOffsetY = 0;
+
+                    if (camAreaRatio > camVideoRatio) {
+                        camScale = camAreaHeight / videoElement.videoHeight;
+                        camTrimOffsetX = (camAreaWidth - (videoElement.videoWidth * camScale)) / 2;
+                    } else {
+                        camScale = camAreaWidth / videoElement.videoWidth;
+                        camTrimOffsetY = (camAreaHeight - (videoElement.videoHeight * camScale)) / 2;
+                    }
+
+                    const finalCamOffsetX = camBaseOffsetX + camTrimOffsetX;
+                    const finalCamOffsetY = camBaseOffsetY + camTrimOffsetY;
+                    
+                    for (let index = 0; index < activePoses.length; index++) {
+                        const poseData = activePoses[index];
+                        if (!poseData) continue; 
+                        
+                        const keypoints = (index === 0 && smoothedKeypoints.length > 0) ? smoothedKeypoints : poseData.keypoints;
+                        const mainColor = colors[index] || colors[0];
+
+                        const getMirroredX = (rawX) => {
+                            return (videoElement.videoWidth - rawX) * camScale + finalCamOffsetX;
+                        };
+                        
+                        for (let i = 0; i < connections.length; i++) {
+                            const pt1 = keypoints[connections[i][0]];
+                            const pt2 = keypoints[connections[i][1]];
+                            if (pt1 && pt2 && pt1.score > 0.15 && pt2.score > 0.15) {
+                                const x1 = getMirroredX(pt1.x);
+                                const y1 = pt1.y * camScale + finalCamOffsetY;
+                                const x2 = getMirroredX(pt2.x);
+                                const y2 = pt2.y * camScale + finalCamOffsetY;
+
+                                if (!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+                                    canvasCtx.save();
+                                    canvasCtx.beginPath();
+                                    canvasCtx.moveTo(x1, y1);
+                                    canvasCtx.lineTo(x2, y2);
+                                    canvasCtx.strokeStyle = mainColor; 
+                                    canvasCtx.lineWidth = 20; 
+                                    canvasCtx.lineCap = 'round';
+                                    canvasCtx.shadowColor = mainColor;
+                                    canvasCtx.shadowBlur = 35; 
+                                    canvasCtx.stroke();
+                                    canvasCtx.restore();
+                                }
+                            }
+                        }
+
+                        keypoints.forEach((kp) => {
+                            if (kp.score > 0.15) {
+                                const cx = getMirroredX(kp.x);
+                                const cy = kp.y * camScale + finalCamOffsetY;
+                                if (!isNaN(cx) && !isNaN(cy)) {
+                                    canvasCtx.save();
+                                    canvasCtx.beginPath();
+                                    canvasCtx.arc(cx, cy, 6, 0, 2 * Math.PI);
+                                    canvasCtx.fillStyle = '#ffffff'; 
+                                    canvasCtx.fill();
+                                    canvasCtx.restore();
+                                }
+                            }
+                        });
+                    }
+                    canvasCtx.globalCompositeOperation = 'source-over';
+                }
+            }
+            requestAnimationFrame(renderLoop);
+        }
+
+        function drawTimelineGraph() {
+            const tlCanvas = document.getElementById('timelineCanvas');
+            if (!tlCanvas) return;
+            const ctx = tlCanvas.getContext('2d');
+            if (tlCanvas.width !== tlCanvas.clientWidth || tlCanvas.height !== tlCanvas.clientHeight) {
+                tlCanvas.width = tlCanvas.clientWidth; tlCanvas.height = tlCanvas.clientHeight;
+            }
+            ctx.clearRect(0, 0, tlCanvas.width, tlCanvas.height);
+
+            ctx.save();
+            ctx.strokeStyle = 'rgba(230, 200, 255, 0.15)'; 
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]); 
+            
+            const percentages = [0.25, 0.50, 0.75];
+            percentages.forEach(p => {
+                const y = tlCanvas.height - (p * tlCanvas.height);
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(tlCanvas.width, y); ctx.stroke();
+            });
+            ctx.restore(); 
+
+            if (scoreHistory.length < 2) return;
+            
+            const step = tlCanvas.width / (MAX_HISTORY - 1);
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            
+            for (let i = scoreHistory.length - 1; i > 0; i--) {
+                const indexFromEnd = (scoreHistory.length - 1) - i;
+                const x1 = tlCanvas.width - (indexFromEnd * step);
+                const y1 = tlCanvas.height - (scoreHistory[i] / 100) * tlCanvas.height;
+                const x2 = tlCanvas.width - ((indexFromEnd + 1) * step);
+                const y2 = tlCanvas.height - (scoreHistory[i - 1] / 100) * tlCanvas.height;
+                
+                if (x1 < 0 && x2 < 0) break;
+                ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+                ctx.strokeStyle = scoreHistory[i] >= 90 ? '#ffb6d6' : (scoreHistory[i] >= 70 ? '#e1b3ff' : 'rgba(163, 245, 255, 0.4)');
+                ctx.stroke();
+            }
+        }
+        
+        async function togglePose() {
+            poseActive = !poseActive;
+            const btn = document.getElementById('poseBtn');
+            if (poseActive) {
+                canvasElement.style.display = 'block';
+                if (!detector) {
+                    btn.innerText = "LOADING..."; btn.disabled = true;
+                    await initPoseDetection();
+                    btn.disabled = false;
+                }
+                btn.innerText = "POSE: ON";
+            } else {
+                canvasElement.style.display = 'none';
+                btn.innerText = "POSE: OFF";
+            }
+        }
+
+        async function toggleSynchro() {
+            synchroActive = !synchroActive;
+            const btn = document.getElementById('synchroBtn');
+            const timeline = document.getElementById('synchroTimeline'); 
+            const score = document.getElementById('synchroScore'); 
+
+            if (synchroActive) {
+                timeline.style.display = 'block'; 
+                score.style.display = 'flex'; 
+                if (!detector) {
+                    btn.innerText = "LOADING..."; btn.disabled = true;
+                    await initPoseDetection();
+                    btn.disabled = false;
+                }
+                btn.innerText = "SYNCHRO: ON";
+            } else {
+                timeline.style.display = 'none'; 
+                score.style.display = 'none'; 
+                btn.innerText = "SYNCHRO: OFF";
+                scoreHistory = []; 
+            }
+        }
+    </script>
+</body>
+</html>
