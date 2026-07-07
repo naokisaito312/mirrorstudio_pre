@@ -282,26 +282,92 @@
         const firstScriptTag = document.getElementsByTagName('script')[0];
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-        let player;
+        let player = null;
+        let isPlayerReady = false; // プレーヤーが準備完了したかどうかのフラグ
+        
         function onYouTubeIframeAPIReady() {
             player = new YT.Player('player', {
-                playerVars: { 'autoplay': 0, 'controls': 0, 'rel': 0, 'origin': location.origin },
-                events: { 'onStateChange': onPlayerStateChange }
+                playerVars: { 
+                    'autoplay': 0, 
+                    'controls': 0, 
+                    'rel': 0, 
+                    'origin': location.origin 
+                },
+                events: { 
+                    'onReady': onPlayerReady,
+                    'onStateChange': onPlayerStateChange 
+                }
             });
         }
-
+        
+        // プレーヤーの準備が完全に整ったら呼ばれる
+        function onPlayerReady(event) {
+            isPlayerReady = true;
+            console.log("YouTube Player is ready.");
+        }
+        
         function loadVideo() {
             const input = document.getElementById('youtubeUrl').value;
             let videoId = input;
             if (input.includes('v=')) { videoId = input.split('v=')[1].split('&')[0]; }
             else if (input.includes('youtu.be/')) { videoId = input.split('youtu.be/')[1].split('?')[0]; }
-
-            if (videoId && player && typeof player.loadVideoById === 'function') {
+        
+            if (videoId && player && isPlayerReady && typeof player.loadVideoById === 'function') {
                 player.loadVideoById({ videoId: videoId });
+                // 動画ロード時にボタン表示を確実に「PAUSE」にリセット（自動再生される場合があるため）
+                document.getElementById('playPauseBtn').innerText = "PAUSE";
             } else {
-                alert('有効なYouTubeのURLを入力してください。');
+                alert('有効なYouTubeのURLを入力するか、プレーヤーの準備が整うまでお待ちください。');
             }
         }
+        
+        function togglePlay() {
+            // プレーヤーが未初期化、またはAPIの関数が準備できていない場合は処理をスキップ
+            if (!player || !isPlayerReady || typeof player.getPlayerState !== 'function') {
+                console.warn("Player is not ready yet.");
+                return;
+            }
+        
+            try {
+                const state = player.getPlayerState();
+                if (state === YT.PlayerState.PLAYING) { 
+                    player.pauseVideo(); 
+                } else { 
+                    player.playVideo(); 
+                }
+            } catch (e) {
+                console.error("Failed to toggle play/pause:", e);
+            }
+        }
+        
+        function onPlayerStateChange(event) {
+            const btn = document.getElementById('playPauseBtn');
+            if (!btn) return;
+        
+            // 再生状態（PLAYING）の時だけ「PAUSE」にし、それ以外（停止、バッファ中など）は「PLAY」にする
+            if (event.data === YT.PlayerState.PLAYING) { 
+                btn.innerText = "PAUSE"; 
+            } else { 
+                btn.innerText = "PLAY"; 
+            }
+        }
+        
+        // キーボードのショートカット（スペースキーなど）も安全に機能するように修正
+        document.addEventListener('keydown', (event) => {
+            if (document.activeElement.tagName === 'INPUT') return;
+            if (event.code === 'Space') { 
+                event.preventDefault(); 
+                togglePlay(); 
+            }
+            else if (event.code === 'ArrowLeft') { 
+                event.preventDefault(); 
+                seekRelative(-10); 
+            }
+            else if (event.code === 'ArrowRight') { 
+                event.preventDefault(); 
+                seekRelative(10); 
+            }
+        });
 
         function handleJsonSelect(input) {
             const file = input.files[0];
@@ -407,10 +473,6 @@
         function seekRelative(seconds) {
             if (!player || typeof player.getCurrentTime !== 'function') return;
             player.seekTo(player.getCurrentTime() + seconds, true);
-        }
-
-        function onPlayerStateChange(event) {
-            document.getElementById('playPauseBtn').innerText = (event.data === YT.PlayerState.PLAYING) ? "PAUSE" : "PLAY";
         }
 
         function toggleYoutubeMirror() {
