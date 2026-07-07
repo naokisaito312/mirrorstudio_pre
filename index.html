@@ -311,12 +311,36 @@
             reader.onload = function(e) {
                 try {
                     let rawData = JSON.parse(e.target.result);
-                    
-                    if (!rawData.frames) {
-                        const actualFrames = Array.isArray(rawData) ? rawData : (rawData.data || rawData.poses || []);
-                        rawData = { frames: actualFrames };
-                    }
+                    let normalizedFrames = [];
         
+                    // 1. 配列が直にきているか、オブジェクトの中に隠れているかを判定
+                    let rawList = Array.isArray(rawData) ? rawData : (rawData.frames || rawData.data || rawData.poses || []);
+        
+                    // 2. データを使いやすい一貫した形（frameオブジェクトの配列）に変換
+                    rawList.forEach(item => {
+                        if (item.keypoints) {
+                            // 最初のJSONのように、1つの要素に直接 keypoints と time が入っている場合
+                            normalizedFrames.push({
+                                time: item.time !== undefined ? item.time : (item.frame / 30), // timeがなければframe数から逆算
+                                people: [{
+                                    person_id: item.person_id !== undefined ? item.person_id : 0,
+                                    keypoints: item.keypoints
+                                }]
+                            });
+                        } else if (item.people || item.predictions) {
+                            // すでに階層化されているデータの場合
+                            let peopleList = item.people || item.predictions;
+                            normalizedFrames.push({
+                                time: item.time !== undefined ? item.time : (item.frame / 30),
+                                people: peopleList.map(p => ({
+                                    person_id: p.person_id !== undefined ? p.person_id : 0,
+                                    keypoints: p.keypoints
+                                }))
+                            });
+                        }
+                    });
+        
+                    // 3. COCOモデルの17箇所の部位名（小文字・記号なし）の定義
                     const cocoParts = [
                         "nose", "lefteye", "righteye", "leftear", "rightear",
                         "leftshoulder", "rightshoulder", "leftelbow", "rightelbow",
@@ -324,52 +348,53 @@
                         "leftknee", "rightknee", "leftankle", "rightankle"
                     ];
         
-                    rawData.frames.forEach(frame => {
-                        if (!frame.people && frame.keypoints) {
-                            frame.people = [{ keypoints: frame.keypoints }];
-                        }
-
-                        if (frame.people) {
-                            frame.people.forEach(person => {
-                                const orderedKeypoints = new Array(17).fill(null).map((_, i) => ({
-                                    part: cocoParts[i], x: 0, y: 0, score: 0
-                                }));
+                    // 4. キーポイントの順序をHTMLの描画システム（COCO順）に強制リビルド
+                    normalizedFrames.forEach(frame => {
+                        frame.people.forEach(person => {
+                            const orderedKeypoints = new Array(17).fill(null).map((_, i) => ({
+                                part: cocoParts[i], x: 0, y: 0, score: 0
+                            }));
         
-                                if (Array.isArray(person.keypoints)) {
-                                    person.keypoints.forEach(kp => {
-                                        if (kp && kp.part) {
-                                            const cleanName = kp.part.toLowerCase().replace(/[^a-z]/g, "");
-                                            const index = cocoParts.indexOf(cleanName);
-                                            if (index !== -1) {
-                                                orderedKeypoints[index] = {
-                                                    x: kp.x,
-                                                    y: kp.y,
-                                                    score: kp.score !== undefined ? kp.score : (kp.confidence !== undefined ? kp.confidence : 1.0)
-                                                };
-                                            }
+                            if (Array.isArray(person.keypoints)) {
+                                person.keypoints.forEach((kp, idx) => {
+                                    if (!kp) return;
+                                    
+                                    // 座標データの抽出 (x, y が直接入っているか、[x, y] 配列か、positionプロパパティか)
+                                    let posX = kp.x !== undefined ? kp.x : (kp.position && kp.position.x !== undefined ? kp.position.x : (Array.isArray(kp) ? kp[0] : 0));
+                                    let posY = kp.y !== undefined ? kp.y : (kp.position && kp.position.y !== undefined ? kp.position.y : (Array.isArray(kp) ? kp[1] : 0));
+                                    let score = kp.score !== undefined ? kp.score : (kp.confidence !== undefined ? kp.confidence : 1.0);
+        
+                                    if (kp.part) {
+                                        // 部位名がついている場合は名前でマッチング
+                                        const cleanName = kp.part.toLowerCase().replace(/[^a-z]/g, "");
+                                        const index = cocoParts.indexOf(cleanName);
+                                        if (index !== -1) {
+                                            orderedKeypoints[index] = { x: posX, y: posY, score: score };
                                         }
-                                    });
-                                }
-                                person.keypoints = orderedKeypoints;
-                            });
-                        }
+                                    } else {
+                                        // 部位名がない場合は配列のインデックス順をそのまま信用する
+                                        if (idx < 17) {
+                                            orderedKeypoints[idx] = { x: posX, y: posY, score: score };
+                                        }
+                                    }
+                                });
+                            }
+                            person.keypoints = orderedKeypoints;
+                        });
                     });
         
-                    dancePoseData = rawData;
+                    dancePoseData = { frames: normalizedFrames };
+                    
                     const label = document.getElementById('jsonLabel');
                     label.innerText = "JSON LOADED";
                     label.classList.add('loaded');
+                    console.log("JSON読み込み成功:", dancePoseData); // デバッグ用
                 } catch (err) {
-                    alert("JSONファイルの読み込みに失敗しました。詳細: " + err.message);
+                    console.error(err);
+                    alert("JSONファイルの解析に失敗しました。詳細: " + err.message);
                 }
             };
             reader.readAsText(file);
-        }
-
-        function togglePlay() {
-            if (!player || typeof player.getPlayerState !== 'function') return;
-            if (player.getPlayerState() === YT.PlayerState.PLAYING) { player.pauseVideo(); } 
-            else { player.playVideo(); }
         }
 
         document.addEventListener('keydown', (event) => {
