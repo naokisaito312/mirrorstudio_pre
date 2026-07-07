@@ -698,11 +698,12 @@
                         currentAnimatedScore = (currentAnimatedScore * 0.85) + (targetScore * 0.15);
                         let displayScore = Math.round(currentAnimatedScore);
                         
+                        updateCircleMeter(displayScore, true); // サークル更新
+                        
                         const now = performance.now();
                         if (now - lastScoreUpdateTime >= 1000) {
                             valueElement.classList.remove('no-data');
                             valueElement.innerHTML = `${displayScore}<span class="synchro-unit">%</span>`;
-                            updateCircleMeter(displayScore, true); // サークル更新
                             lastScoreUpdateTime = now;
                         }
                         
