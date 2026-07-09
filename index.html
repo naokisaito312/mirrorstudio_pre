@@ -38,7 +38,7 @@
             object-fit: contain; 
             transform: scaleX(-1); 
             z-index: 1;
-            transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+            transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1); /* transitionを統一 */
         }
 
         .video-container {
@@ -49,7 +49,7 @@
             height: 100%;
             z-index: 2;
             pointer-events: none;
-            transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+            transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1); /* transitionを確実に適用 */
             perspective: 1000px; 
         }
 
@@ -60,19 +60,39 @@
             transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1); 
         }
 
-        /* --- モード別スタイル --- */
+        /* OVERLAY モード */
         .video-container.mode-overlay {
             top: 0; left: 0; width: 100%; height: 100%; opacity: 0.5; 
         }
+        body.mode-overlay-active #webcam {
+            top: 0; left: 0; width: 100%; height: 100%;
+        }
+        
+        /* MINI モード */
         .video-container.mode-mini {
-            top: 135px; left: auto; right: 20px; width: 30vw; height: calc(30vw * 9 / 16);
+            top: 135px; left: calc(100vw - 30vw - 20px); width: 30vw; height: calc(30vw * 9 / 16);
             opacity: 1.0 !important; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             border-radius: 16px; overflow: hidden; border: 2px solid rgba(255, 194, 235, 0.6); pointer-events: auto;
         }
-        .video-container.mode-split-h { position: relative; width: 50vw; height: 100vh; opacity: 1.0 !important; pointer-events: auto; }
-        body.split-h-active #webcam { position: relative; width: 50vw; height: 100vh; }
-        .video-container.mode-split-v { position: relative; width: 100vw; height: 50vh; opacity: 1.0 !important; pointer-events: auto; }
-        body.split-v-active #webcam { position: relative; width: 100vw; height: 50vh; }
+        body.mode-mini-active #webcam {
+            top: 0; left: 0; width: 100%; height: 100%;
+        }
+        
+        /* SPLIT: H (左右分割) モード */
+        .video-container.mode-split-h { 
+            top: 0; left: 0; width: 50vw; height: 100vh; opacity: 1.0 !important; pointer-events: auto; 
+        }
+        body.split-h-active #webcam { 
+            top: 0; left: 50vw; width: 50vw; height: 100vh; 
+        }
+        
+        /* SPLIT: V (上下分割) モード */
+        .video-container.mode-split-v { 
+            top: 0; left: 0; width: 100vw; height: 50vh; opacity: 1.0 !important; pointer-events: auto; 
+        }
+        body.split-v-active #webcam { 
+            top: 50vh; left: 0; width: 100vw; height: 50vh; 
+        }
 
         .video-container.mirrored #player { transform: scaleX(-1); }
         iframe { width: 100%; height: 100%; border: none; }
@@ -506,30 +526,32 @@
             const modeBtn = document.getElementById('modeBtn');
             const opacityLabel = document.getElementById('opacityLabel');
             const body = document.body;
-
+        
             currentModeIndex = (currentModeIndex + 1) % modes.length;
             const activeMode = modes[currentModeIndex];
             modeBtn.innerText = `MODE: ${activeMode}`;
-
+        
+            // クラスを一度すべてクリア
             container.className = "video-container";
             body.className = "";
             container.style.opacity = ""; 
             opacityLabel.classList.add('disabled-ui');
-
+        
             if (isMirrored) container.classList.add('mirrored');
-
+        
+            // 各モードに応じて、container と body の両方にクラスを付与
             if (activeMode === "OVERLAY") {
                 container.classList.add('mode-overlay');
+                body.classList.add('mode-overlay-active');
                 container.style.opacity = currentOpacity;
                 opacityLabel.classList.remove('disabled-ui');
             } else if (activeMode === "MINI") {
                 container.classList.add('mode-mini');
+                body.classList.add('mode-mini-active');
             } else if (activeMode === "SPLIT: H") {
-                body.style.flexDirection = "row";
                 body.classList.add('split-h-active');
                 container.classList.add('mode-split-h');
             } else if (activeMode === "SPLIT: V") {
-                body.style.flexDirection = "column";
                 body.classList.add('split-v-active');
                 container.classList.add('mode-split-v');
             }
