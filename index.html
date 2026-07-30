@@ -330,10 +330,10 @@
                     'controls': 0, 
                     'rel': 0, 
                     'origin': location.origin,
-                    'cc_load_policy': 0,  // 字幕を強制的にOFF
-                    'cc_lang_pref': 'ja',
-                    'hl': 'ja',
-                    'iv_load_policy': 3
+                    'cc_load_policy': 0,    // 字幕自動読み込みオフ
+                    'cc_lang_pref': 'none', // 存在しない言語を指定して字幕ロードを回避
+                    'iv_load_policy': 3,    // 動画アノテーション非表示
+                    'disablekb': 1          // キーボード操作無効
                 },
                 events: { 
                     'onReady': onPlayerReady,
@@ -345,12 +345,14 @@
         function onPlayerReady(event) {
             isPlayerReady = true;
             try {
-                // 字幕モジュールが読み込まれている場合はアンロードを試みる
+                // 字幕モジュールがロードされている場合は強制的にアンロード
                 if (typeof player.unloadModule === 'function') {
                     player.unloadModule('captions');
                 }
+                // 字幕オプションのトラックを空にセット
                 if (typeof player.setOption === 'function') {
                     player.setOption('captions', 'track', {});
+                    player.setOption('captions', 'reload', false);
                 }
             } catch (e) {
                 console.log("Captions disable notice:", e);
