@@ -305,31 +305,67 @@
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
         let player = null;
-        let isPlayerReady = false; // プレーヤーが準備完了したかどうかのフラグ
-        
+        let isPlayerReady = false; 
+
+        // 初回API準備完了時
         function onYouTubeIframeAPIReady() {
+            // 初期状態では空で生成せず、LOAD時に生成するか、ダミーで初期化
+            isPlayerReady = true;
+            console.log("YouTube API is ready.");
+        }
+
+        // プレーヤーを作成・再生成する共通関数
+        function createYouTubePlayer(videoId) {
+            isPlayerReady = false;
+
+            // 既存のプレーヤーオブジェクトがあれば破棄
+            if (player && typeof player.destroy === 'function') {
+                player.destroy();
+            }
+
+            // 新しいdiv要素を作り直して置き換える（destroyでdivが消えるため）
+            const container = document.getElementById('videoContainer');
+            container.innerHTML = '<div id="player"></div>';
+
+            // 強制的に字幕をオフにするパラメータを設定してプレーヤーを生成
             player = new YT.Player('player', {
+                videoId: videoId, // 👈【重要】初期化時に動画IDを渡すことでcc_load_policyが確実に効くようになります
                 playerVars: { 
-                    'autoplay': 0, 
+                    'autoplay': 1,        // ロード後自動再生
                     'controls': 0, 
                     'rel': 0, 
                     'origin': location.origin,
-                    'cc_load_policy': 0, // 字幕ロードポリシーをオフ
-                    'cc_lang_pref': 'ja',
+                    'cc_load_policy': 0,  // 👈 字幕をデフォルト非表示
+                    'cc_lang_pref': 'ja', 
                     'hl': 'ja',
                     'iv_load_policy': 3
                 },
                 events: { 
-                    'onReady': onPlayerReady,
+                    'onReady': (event) => {
+                        isPlayerReady = true;
+                        onPlayerReady(event);
+                    },
                     'onStateChange': onPlayerStateChange 
                 }
             });
         }
         
-        // プレーヤーの準備が完全に整ったら呼ばれる
         function onPlayerReady(event) {
             isPlayerReady = true;
-            console.log("YouTube Player is ready.");
+            
+            // 念押し：キャプションモジュールを強制アンロード
+            try {
+                if (typeof player.unloadModule === 'function') {
+                    player.unloadModule('captions');
+                }
+                if (typeof player.setOption === 'function') {
+                    player.setOption('captions', 'track', {});
+                }
+            } catch (e) {
+                console.log("Captions disable notice:", e);
+            }
+
+            document.getElementById('playPauseBtn').innerText = "PAUSE";
         }
         
         function loadVideo() {
@@ -338,32 +374,11 @@
             if (input.includes('v=')) { videoId = input.split('v=')[1].split('&')[0]; }
             else if (input.includes('youtu.be/')) { videoId = input.split('youtu.be/')[1].split('?')[0]; }
         
-            if (videoId && player && isPlayerReady && typeof player.loadVideoById === 'function') {
-                player.loadVideoById({
-                    videoId: videoId,
-                    playerVars: {
-                        'cc_load_policy': 0,
-                        'cc_lang_pref': 'ja'
-                    }
-                });
-
-                // 強制非表示APIの実行
-                try {
-                    if (typeof player.unloadModule === 'function') {
-                        player.unloadModule('captions');
-                    }
-                    if (typeof player.setOption === 'function') {
-                        player.setOption('captions', 'reload', false);
-                        player.setOption('captions', 'track', {}); // 👈【追加】空のトラックを設定して字幕を消去
-                    }
-                } catch (e) {
-                    console.log("Captions disable notice:", e);
-                }
-                
-                // 動画ロード時にボタン表示を確実に「PAUSE」にリセット（自動再生される場合があるため）
-                document.getElementById('playPauseBtn').innerText = "PAUSE";
+            if (videoId) {
+                // 動画IDを指定してプレーヤーを生成・再読み込み
+                createYouTubePlayer(videoId);
             } else {
-                alert('有効なYouTubeのURLを入力するか、プレーヤーの準備が整うまでお待ちください。');
+                alert('有効なYouTubeのURLまたは動画IDを入力してください。');
             }
         }
         
