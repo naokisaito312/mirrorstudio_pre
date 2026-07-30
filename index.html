@@ -38,6 +38,7 @@
             object-fit: contain; 
             transform: scaleX(-1); 
             z-index: 1;
+            pointer-events: none;
             transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1); /* transitionを統一 */
         }
 
@@ -48,7 +49,7 @@
             width: 100%;
             height: 100%;
             z-index: 2;
-            pointer-events: none;
+            pointer-events: auto;
             transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1); /* transitionを確実に適用 */
             perspective: 1000px; 
         }
@@ -62,7 +63,8 @@
 
         /* OVERLAY モード */
         .video-container.mode-overlay {
-            top: 0; left: 0; width: 100%; height: 100%; opacity: 0.5; 
+            top: 0; left: 0; width: 100%; height: 100%; opacity: 0.5;
+            z-index: 3;
         }
         body.mode-overlay-active #webcam {
             top: 0; left: 0; width: 100%; height: 100%;
