@@ -312,13 +312,11 @@
             console.log("YouTube API Ready.");
         }
         
-        // 動画IDをもとにプレーヤーを再初期化（字幕オフ設定を正しく適用）
         function createPlayer(videoId) {
             if (player && typeof player.destroy === 'function') {
                 player.destroy();
             }
         
-            // DOM要素をクリアして再生成
             const container = document.getElementById('videoContainer');
             container.innerHTML = '<div id="player"></div>';
         
@@ -331,7 +329,7 @@
                     'rel': 0, 
                     'origin': location.origin,
                     'cc_load_policy': 0,    // 字幕自動読み込みオフ
-                    'cc_lang_pref': 'none', // 存在しない言語を指定して字幕ロードを回避
+                    // ★ 'cc_lang_pref': 'none' は逆効果になり得るため削除
                     'iv_load_policy': 3,    // 動画アノテーション非表示
                     'disablekb': 1          // キーボード操作無効
                 },
@@ -342,21 +340,22 @@
             });
         }
         
-        function onPlayerReady(event) {
-            isPlayerReady = true;
+        // ★ 字幕を強制的にオフにする共通関数
+        function disableCaptions() {
+            if (!player) return;
             try {
-                // 字幕モジュールがロードされている場合は強制的にアンロード
                 if (typeof player.unloadModule === 'function') {
-                    player.unloadModule('captions');
-                }
-                // 字幕オプションのトラックを空にセット
-                if (typeof player.setOption === 'function') {
-                    player.setOption('captions', 'track', {});
-                    player.setOption('captions', 'reload', false);
+                    player.unloadModule('captions'); // 新モジュール名
+                    player.unloadModule('cc');       // 旧モジュール名（保険）
                 }
             } catch (e) {
                 console.log("Captions disable notice:", e);
             }
+        }
+        
+        function onPlayerReady(event) {
+            isPlayerReady = true;
+            disableCaptions(); // ★ 共通関数を呼び出し
             document.getElementById('playPauseBtn').innerText = "PAUSE";
         }
         
@@ -367,14 +366,13 @@
             else if (input.includes('youtu.be/')) { videoId = input.split('youtu.be/')[1].split('?')[0]; }
         
             if (videoId) {
-                createPlayer(videoId); // プレーヤーを新規生成して読み込み
+                createPlayer(videoId);
             } else {
                 alert('有効なYouTubeのURLまたは動画IDを入力してください。');
             }
         }
         
         function togglePlay() {
-            // プレーヤーが未初期化、またはAPIの関数が準備できていない場合は処理をスキップ
             if (!player || !isPlayerReady || typeof player.getPlayerState !== 'function') {
                 console.warn("Player is not ready yet.");
                 return;
@@ -396,11 +394,19 @@
             const btn = document.getElementById('playPauseBtn');
             if (!btn) return;
         
-            // 再生状態（PLAYING）の時だけ「PAUSE」にし、それ以外（停止、バッファ中など）は「PLAY」にする
+            // 再生状態の表示切り替え
             if (event.data === YT.PlayerState.PLAYING) { 
                 btn.innerText = "PAUSE"; 
             } else { 
                 btn.innerText = "PLAY"; 
+            }
+        
+            // ★ 再生・バッファリング時に字幕を強制オフ
+            if (event.data === YT.PlayerState.PLAYING ||
+                event.data === YT.PlayerState.BUFFERING) {
+                disableCaptions();
+                // 念のため少し遅らせて再実行（字幕は再生後にロードされることがあるため）
+                setTimeout(disableCaptions, 500);
             }
         }
         
