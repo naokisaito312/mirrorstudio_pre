@@ -313,7 +313,8 @@
                     'autoplay': 0, 
                     'controls': 0, 
                     'rel': 0, 
-                    'origin': location.origin 
+                    'origin': location.origin,
+                    'cc_load_policy': 0
                 },
                 events: { 
                     'onReady': onPlayerReady,
@@ -336,6 +337,19 @@
         
             if (videoId && player && isPlayerReady && typeof player.loadVideoById === 'function') {
                 player.loadVideoById({ videoId: videoId });
+
+                // 👇【追加】動画ロード時に強制的に字幕モジュールを無効化する
+                try {
+                    if (typeof player.unloadModule === 'function') {
+                        player.unloadModule('captions');
+                    }
+                    if (typeof player.setOption === 'function') {
+                        player.setOption('captions', 'reload', false);
+                    }
+                } catch (e) {
+                    console.log("Captions disable notice:", e);
+                }
+                
                 // 動画ロード時にボタン表示を確実に「PAUSE」にリセット（自動再生される場合があるため）
                 document.getElementById('playPauseBtn').innerText = "PAUSE";
             } else {
