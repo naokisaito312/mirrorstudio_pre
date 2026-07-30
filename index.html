@@ -305,46 +305,38 @@
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
         let player = null;
-        let isPlayerReady = false; 
-
-        // 初回API準備完了時
+        let isPlayerReady = false;
+        
         function onYouTubeIframeAPIReady() {
-            // 初期状態では空で生成せず、LOAD時に生成するか、ダミーで初期化
             isPlayerReady = true;
-            console.log("YouTube API is ready.");
+            console.log("YouTube API Ready.");
         }
-
-        // プレーヤーを作成・再生成する共通関数
-        function createYouTubePlayer(videoId) {
-            isPlayerReady = false;
-
-            // 既存のプレーヤーオブジェクトがあれば破棄
+        
+        // 動画IDをもとにプレーヤーを再初期化（字幕オフ設定を正しく適用）
+        function createPlayer(videoId) {
             if (player && typeof player.destroy === 'function') {
                 player.destroy();
             }
-
-            // 新しいdiv要素を作り直して置き換える（destroyでdivが消えるため）
+        
+            // DOM要素をクリアして再生成
             const container = document.getElementById('videoContainer');
             container.innerHTML = '<div id="player"></div>';
-
-            // 強制的に字幕をオフにするパラメータを設定してプレーヤーを生成
+        
+            isPlayerReady = false;
             player = new YT.Player('player', {
-                videoId: videoId, // 👈【重要】初期化時に動画IDを渡すことでcc_load_policyが確実に効くようになります
+                videoId: videoId,
                 playerVars: { 
-                    'autoplay': 1,        // ロード後自動再生
+                    'autoplay': 1, 
                     'controls': 0, 
                     'rel': 0, 
                     'origin': location.origin,
-                    'cc_load_policy': 0,  // 👈 字幕をデフォルト非表示
-                    'cc_lang_pref': 'ja', 
+                    'cc_load_policy': 0,  // 字幕を強制的にOFF
+                    'cc_lang_pref': 'ja',
                     'hl': 'ja',
                     'iv_load_policy': 3
                 },
                 events: { 
-                    'onReady': (event) => {
-                        isPlayerReady = true;
-                        onPlayerReady(event);
-                    },
+                    'onReady': onPlayerReady,
                     'onStateChange': onPlayerStateChange 
                 }
             });
@@ -352,9 +344,8 @@
         
         function onPlayerReady(event) {
             isPlayerReady = true;
-            
-            // 念押し：キャプションモジュールを強制アンロード
             try {
+                // 字幕モジュールが読み込まれている場合はアンロードを試みる
                 if (typeof player.unloadModule === 'function') {
                     player.unloadModule('captions');
                 }
@@ -364,7 +355,6 @@
             } catch (e) {
                 console.log("Captions disable notice:", e);
             }
-
             document.getElementById('playPauseBtn').innerText = "PAUSE";
         }
         
@@ -375,8 +365,7 @@
             else if (input.includes('youtu.be/')) { videoId = input.split('youtu.be/')[1].split('?')[0]; }
         
             if (videoId) {
-                // 動画IDを指定してプレーヤーを生成・再読み込み
-                createYouTubePlayer(videoId);
+                createPlayer(videoId); // プレーヤーを新規生成して読み込み
             } else {
                 alert('有効なYouTubeのURLまたは動画IDを入力してください。');
             }
